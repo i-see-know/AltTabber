@@ -240,7 +240,7 @@ void PerformSlotting(F&& functor)
         
         unsigned int nTiles = 1;
         while(nTiles < nWindows) nTiles <<= 1;
-        if(nTiles != nWindows) nTiles = max(1, nTiles >> 1);
+        if(nTiles != nWindows) nTiles = std::max(1u, nTiles >> 1);
         
         long lala = (long)(sqrt((double)nTiles) + 0.5);
 
