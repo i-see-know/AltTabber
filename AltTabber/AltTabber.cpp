@@ -38,6 +38,7 @@ extern void SetThumbnails();
 extern void OnPaint(HDC);
 extern void MoveCursorOverActiveSlot();
 extern int HitTestSlotButtons(POINT);
+extern void RemoveThumbnailFor(HWND);
 
 ProgramState_t g_programState = {
     /*showing=*/FALSE,
@@ -538,20 +539,31 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             break;
         case MY_CLOSE_BTN_ID:
             if(g_programState.activeSlot >= 0) {
-                auto& slot = g_programState.slots[g_programState.activeSlot];
-                PostMessage(slot.hwnd, WM_SYSCOMMAND, SC_CLOSE, -1);
-                if(g_programState.resetOnClose) {
+                long oldIdx = g_programState.activeSlot;
+                HWND target = g_programState.slots[g_programState.activeSlot].hwnd;
+                PostMessage(target, WM_SYSCOMMAND, SC_CLOSE, -1);
+                if(g_programState.resetOnClose
+                    && g_programState.slots.size() <= 2)
+                {
                     // clear the filter because of use case
-                    if(g_programState.slots.size() <= 2) {
-                        g_programState.filter = L"";
-                    }
-                    // rebuild thumbnails because filter was changed
-                    // and there are maybe dangling slots
+                    g_programState.filter = L"";
                     CreateThumbnails(g_programState.filter);
-                    SetThumbnails();
-                    // force redraw window (the labels)
-                    RedrawWindow(hWnd, NULL, NULL, RDW_INVALIDATE);
+                } else {
+                    // optimistically drop the tile so the grid reflows
+                    // right away, like the native switcher; the window
+                    // may survive (e.g. a save prompt), in which case
+                    // it reappears the next time the overlay opens
+                    RemoveThumbnailFor(target);
                 }
+                SetThumbnails();
+                // keep the selection where the user was instead of
+                // letting it jump back to the previous window's slot
+                if(!g_programState.slots.empty()) {
+                    long last = (long)g_programState.slots.size() - 1;
+                    g_programState.activeSlot = (oldIdx < last) ? oldIdx : last;
+                    if(g_programState.uiaProvider) g_programState.uiaProvider->SelectionChanged();
+                }
+                RedrawWindow(hWnd, NULL, NULL, RDW_INVALIDATE);
             }
             break;
         case MY_MOVE_TO_1_ID:

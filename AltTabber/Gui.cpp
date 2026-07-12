@@ -215,6 +215,26 @@ void PurgeThumbnails()
     g_programState.thumbnails.clear();
 }
 
+// drop a single window's tile without re-enumerating, so the grid can
+// reflow immediately after a close request (like the native switcher)
+void RemoveThumbnailFor(HWND hwnd)
+{
+    for(auto i = g_programState.thumbnails.begin();
+            i != g_programState.thumbnails.end();
+            ++i)
+    {
+        auto& v = i->second;
+        for(auto it = v.begin(); it != v.end(); ) {
+            if(it->hwnd == hwnd) {
+                if(it->type == APP_THUMB_AERO) DwmUnregisterThumbnail(it->thumb);
+                it = v.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 void CreateThumbnails(std::wstring const& filter)
 {
     PurgeThumbnails();
