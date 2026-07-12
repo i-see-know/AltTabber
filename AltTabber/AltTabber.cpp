@@ -76,11 +76,22 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
 
-	// TODO still not clear if I still need to call this
-	//      or not, given that the manifest says this is
-	//      dpi aware. Hope to some day figure out if this
-	//      is needed/or not/or harmless
-	SetProcessDPIAware();
+    // per-monitor-v2 DPI awareness so mixed-scale multi-monitor setups
+    // get physical pixel coordinates everywhere (monitor rects, window
+    // placement, thumbnail rects); system-dpi-aware coordinates are
+    // virtualized on monitors whose scale differs from the primary and
+    // the overlay ends up clipped there. Fall back for older systems.
+    {
+        typedef BOOL (WINAPI *SetDpiCtxFn)(HANDLE);
+        HMODULE user32 = GetModuleHandle(_T("user32.dll"));
+        SetDpiCtxFn setCtx = user32
+            ? (SetDpiCtxFn)GetProcAddress(user32, "SetProcessDpiAwarenessContext")
+            : NULL;
+        // -4 == DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+        if(!setCtx || !setCtx((HANDLE)(INT_PTR)-4)) {
+            SetProcessDPIAware();
+        }
+    }
 
     MSG msg;
     HACCEL hAccelTable;
