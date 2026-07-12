@@ -447,7 +447,7 @@ void OnPaint(HDC hdc)
     fSize = MulDiv(fSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
     if(fSize != 12l) log(_T("font size scaled to %ld\n"), fSize);
     HFONT font = CreateFont(
-            -fSize, 0, 0, 0, 0, 0, 0, 0,
+            -fSize, 0, 0, 0, FW_MEDIUM, 0, 0, 0,
             DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY,
@@ -456,7 +456,8 @@ void OnPaint(HDC hdc)
     HFONT originalFont = (HFONT)SelectObject(hdc, font);
     
     auto mis = GetMonitorGeometry();
-    SetDCBrushColor(hdc, RGB(0, 0, 0));
+    SetDCBrushColor(hdc, RGB(13, 13, 17));
+    SetDCPenColor(hdc, RGB(13, 13, 17));
     log(_T("rectangle is %ld %ld %ld %ld\n"), mis.r.left, mis.r.top, mis.r.right, mis.r.bottom);
     //auto hrRectangle = Rectangle(hdc, 0, 0, mis.r.right - mis.r.left, mis.r.bottom - mis.r.top);
     //log(_T("rectangle returned %d: errno %d\n"), hrRectangle, GetLastError());
@@ -466,21 +467,10 @@ void OnPaint(HDC hdc)
     auto hrRectangle = Rectangle(hdc, 0, 0, winRect.right - winRect.left, winRect.bottom - winRect.top);
     log(_T("rectangle returned %d: errno %d\n"), hrRectangle, GetLastError());
 
-    // active slot: accent-colored fill, visible as a frame around the
-    // label strip and thumbnail drawn on top of it
-    SetDCPenColor(hdc, RGB(0, 120, 215));
-    SetDCBrushColor(hdc, RGB(0, 120, 215));
-
-    if(g_programState.activeSlot >= 0) {
-        RECT r = (g_programState.slots[g_programState.activeSlot]).r;
-        Rectangle(hdc, r.left, r.top, r.right, r.bottom);
-    }
-
-    SetDCBrushColor(hdc, RGB(38, 38, 42));
-    SetDCPenColor(hdc, RGB(90, 90, 96));
-    COLORREF prevTextColor = SetTextColor(hdc, RGB(235, 235, 235));
+    COLORREF prevTextColor = SetTextColor(hdc, RGB(232, 232, 236));
     int prevBkMode = SetBkMode(hdc, TRANSPARENT);
 
+    size_t slotIdx = 0;
     PerformSlotting([&](MonitorInfo_t& mi, size_t j, long l1, long, long hs, long ws) {
             AppThumb_t& thumb = g_programState.thumbnails[mi.hMonitor][j];
             HWND hwnd = thumb.hwnd;
@@ -500,7 +490,14 @@ void OnPaint(HDC hdc)
             GetWindowText(hwnd, str, 256);
             std::wstring title(str);
 
-            Rectangle(hdc, r.left, r.top, r.right, r.bottom);
+            bool selected = ((long)slotIdx == g_programState.activeSlot);
+            ++slotIdx;
+
+            // label strip: rounded, flat; selected gets a tinted fill
+            // and an accent outline
+            SetDCBrushColor(hdc, selected ? RGB(18, 44, 68) : RGB(28, 28, 34));
+            SetDCPenColor(hdc, selected ? RGB(76, 194, 255) : RGB(52, 52, 62));
+            RoundRect(hdc, r.left, r.top, r.right, r.bottom, 12, 12);
 
             RECT labelBox = r;
             RECT btns[12];
@@ -516,10 +513,11 @@ void OnPaint(HDC hdc)
             r.bottom -= 3;
             DrawText(hdc, str, -1, &r, DT_LEFT | DT_WORDBREAK | DT_WORD_ELLIPSIS);
 
-            SetDCPenColor(hdc, RGB(110, 110, 116));
             for(int b = 0; b < nBtns; ++b) {
-                SetDCBrushColor(hdc, RGB(58, 58, 64));
-                Rectangle(hdc, btns[b].left, btns[b].top, btns[b].right, btns[b].bottom);
+                // flat rounded buttons: border matches the fill
+                SetDCBrushColor(hdc, RGB(42, 42, 51));
+                SetDCPenColor(hdc, RGB(42, 42, 51));
+                RoundRect(hdc, btns[b].left, btns[b].top, btns[b].right, btns[b].bottom, 8, 8);
                 TCHAR bl[8];
                 if(b == 0) {
                     lstrcpy(bl, _T("\xD7")); // multiplication sign as a close glyph
@@ -531,10 +529,8 @@ void OnPaint(HDC hdc)
                 RECT br2 = btns[b];
                 DrawText(hdc, bl, -1, &br2, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             }
-            // restore label colors for the next slot
-            SetTextColor(hdc, RGB(235, 235, 235));
-            SetDCBrushColor(hdc, RGB(38, 38, 42));
-            SetDCPenColor(hdc, RGB(90, 90, 96));
+            // restore text color for the next slot's title
+            SetTextColor(hdc, RGB(232, 232, 236));
 
             if(thumb.type == APP_THUMB_COMPAT) {
                 ICONINFO iconInfo;
@@ -575,6 +571,21 @@ void OnPaint(HDC hdc)
                 }
             }
     });
+
+    // accent outline around the whole selected cell (thumbnails are
+    // inset, so the border never collides with them)
+    if(g_programState.activeSlot >= 0
+        && (size_t)g_programState.activeSlot < g_programState.slots.size())
+    {
+        RECT ar = g_programState.slots[g_programState.activeSlot].r;
+        HPEN accent = CreatePen(PS_SOLID, 3, RGB(76, 194, 255));
+        HGDIOBJ oldPen = SelectObject(hdc, accent);
+        HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        RoundRect(hdc, ar.left + 2, ar.top + 2, ar.right - 2, ar.bottom - 2, 16, 16);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(accent);
+    }
 
     SetTextColor(hdc, prevTextColor);
     SetBkMode(hdc, prevBkMode);
