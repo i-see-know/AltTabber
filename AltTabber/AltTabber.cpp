@@ -62,6 +62,32 @@ ProgramState_t g_programState = {
 #define JAT_HOTKEY_ALTTAB 2
 #define JAT_HOTKEY_ALTSHIFTTAB 3
 
+static HHOOK g_hKeyboardHook = NULL;
+
+// Alt+Tab is reserved by the system: RegisterHotKey(MOD_ALT, VK_TAB)
+// succeeds but WM_HOTKEY is never delivered. Intercept it with a
+// low-level keyboard hook instead, like other modern switcher
+// replacements do, and swallow the keystroke so the native switcher
+// does not open. Note: when an elevated window is in the foreground
+// UIPI bypasses this hook and the native Alt+Tab takes over.
+static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if(nCode == HC_ACTION) {
+        KBDLLHOOKSTRUCT* k = (KBDLLHOOKSTRUCT*)lParam;
+        if((wParam == WM_SYSKEYDOWN || wParam == WM_KEYDOWN)
+            && k->vkCode == VK_TAB
+            && (k->flags & LLKHF_ALTDOWN))
+        {
+            BOOL shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+            PostMessage(g_programState.hWnd, WM_HOTKEY,
+                shift ? JAT_HOTKEY_ALTSHIFTTAB : JAT_HOTKEY_ALTTAB,
+                0);
+            return 1;
+        }
+    }
+    return CallNextHookEx(NULL, nCode, wParam, lParam);
+}
+
 // Global Variables:
 HINSTANCE hInst;                                // current instance
 TCHAR szTitle[MAX_LOADSTRING];                    // The title bar text
@@ -119,8 +145,13 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 
 static inline void Cleanup()
 {
+    if(g_hKeyboardHook) {
+        UnhookWindowsHookEx(g_hKeyboardHook);
+        g_hKeyboardHook = NULL;
+    }
+
     PurgeThumbnails();
-    
+
     if(g_programState.freopened != NULL) fclose(g_programState.freopened);
 
     NOTIFYICONDATA nid;
@@ -240,19 +271,19 @@ BOOL InitInstance(HINSTANCE hInstance, int)
         PostQuitMessage(0);
     }
 
+    g_programState.hWnd = hWnd;
+
     if(g_programState.hijackAltTab) {
         // take over the system switcher; failure is not fatal, the main
         // hotkey still works
-        if(RegisterHotKey(hWnd, JAT_HOTKEY_ALTTAB, MOD_ALT, VK_TAB)
-            && RegisterHotKey(hWnd, JAT_HOTKEY_ALTSHIFTTAB, MOD_ALT | MOD_SHIFT, VK_TAB))
-        {
-            log(_T("alt-tab hotkeys registered successfully\n"));
+        g_hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL,
+            LowLevelKeyboardProc, GetModuleHandle(NULL), 0);
+        if(g_hKeyboardHook) {
+            log(_T("alt-tab keyboard hook installed\n"));
         } else {
-            log(_T("failed to register alt-tab hotkeys; errno %d\n"), GetLastError());
+            log(_T("failed to install alt-tab keyboard hook; errno %d\n"), GetLastError());
         }
     }
-
-    g_programState.hWnd = hWnd;
 
     NOTIFYICONDATA nid = {};
     ZeroMemory(&nid,sizeof(NOTIFYICONDATA));
