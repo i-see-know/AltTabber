@@ -8,23 +8,43 @@ extern void CreateThumbnails(std::wstring const& filter);
 extern void SetThumbnails();
 extern void MoveCursorOverActiveSlot();
 
-// SetForegroundWindow with the AttachThreadInput fallback: when the
-// switcher is activated from the keyboard hook this process never
-// received real input, so the foreground lock rejects a plain
-// SetForegroundWindow and keyboard focus stays with the old window
+// SetForegroundWindow with escalating fallbacks: when the switcher is
+// activated from the keyboard hook this process never received real
+// input, so the foreground lock can reject a plain SetForegroundWindow.
+// Each step is verified because SetForegroundWindow may return TRUE and
+// still only flash the taskbar button.
 void ForceForeground(HWND hWnd)
 {
-    if(SetForegroundWindow(hWnd)) return;
+    if(GetForegroundWindow() == hWnd) return;
+    SetForegroundWindow(hWnd);
+    if(GetForegroundWindow() == hWnd) return;
 
+    // borrow the current foreground thread's right
     HWND fg = GetForegroundWindow();
     DWORD fgThread = fg ? GetWindowThreadProcessId(fg, NULL) : 0;
     DWORD self = GetCurrentThreadId();
     if(fgThread && fgThread != self) {
         AttachThreadInput(self, fgThread, TRUE);
-        auto hr = SetForegroundWindow(hWnd);
+        SetForegroundWindow(hWnd);
         AttachThreadInput(self, fgThread, FALSE);
-        log(_T("forced foreground via AttachThreadInput: %d\n"), hr);
+        if(GetForegroundWindow() == hWnd) return;
     }
+
+    if(!(GetAsyncKeyState(VK_MENU) & 0x8000)) {
+        // a synthetic Alt tap makes the system release the foreground
+        // lock (classic switcher trick); skipped while the user is
+        // physically holding Alt so we do not fake an Alt release in
+        // the middle of an Alt+Tab gesture
+        keybd_event(VK_MENU, 0, 0, 0);
+        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
+        SetForegroundWindow(hWnd);
+        if(GetForegroundWindow() == hWnd) return;
+    }
+
+    // last resort: ask the shell to alt-tab to it
+    SwitchToThisWindow(hWnd, TRUE);
+    log(_T("ForceForeground fell through to SwitchToThisWindow for %p\n"),
+        (void*)hWnd);
 }
 
 void ActivateSwitcher()
@@ -74,6 +94,14 @@ void QuitOverlay()
     g_programState.showing = FALSE;
     g_programState.altTabMode = FALSE;
     auto monitorGeom = GetMonitorGeometry();
+    // hand the foreground over BEFORE hiding the overlay: hiding the
+    // foreground window first makes the system activate some other
+    // window on its own, and this process may then lose the right to
+    // call SetForegroundWindow (intermittent failed switches)
+    if(g_programState.prevActiveWindow) {
+        ForceForeground(g_programState.prevActiveWindow);
+        log(_T("set foreground window to previous\n"));
+    }
     SetWindowPos(g_programState.hWnd,
             0,
             0, 0,
@@ -81,8 +109,6 @@ void QuitOverlay()
             SWP_HIDEWINDOW | SWP_NOSIZE | SWP_NOZORDER | SWP_NOSENDCHANGING);
     if(g_programState.prevActiveWindow) {
         HWND hwnd = g_programState.prevActiveWindow;
-        ForceForeground(hwnd);
-        log(_T("set foreground window to previous\n"));
         if(IsIconic(hwnd)) {
             // note to self: apparently only the owner of the window
             // can re-maximize it/restore it properly; calling anything
