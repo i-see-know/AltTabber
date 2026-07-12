@@ -241,6 +241,59 @@ static long LabelBandHeight(long hs)
     return std::min(hs / 3, band);
 }
 
+// small in-cell buttons duplicating the context menu actions:
+// rects[0] = close, rects[1..n] = move to monitor 1..n (left of close)
+static int SlotButtonRects(RECT const& labelBox, HWND hwnd, RECT* rects, int maxRects)
+{
+    long s = (labelBox.bottom - labelBox.top) - 8;
+    if(s < 16) s = 16;
+    long top = labelBox.top + ((labelBox.bottom - labelBox.top) - s) / 2;
+    long right = labelBox.right - 4;
+    int count = 0;
+    if(maxRects < 1) return 0;
+    rects[count].left = right - s;
+    rects[count].top = top;
+    rects[count].right = right;
+    rects[count].bottom = top + s;
+    count++;
+    auto mis = GetMonitorGeometry();
+    auto n = mis.monitors.size();
+    if(n > 1 && n <= 10 && !IsIconic(hwnd)) {
+        for(size_t i = 0; i < n && count < maxRects; ++i) {
+            rects[count].right = right - (long)(s + 4) * (long)(n - i);
+            rects[count].left = rects[count].right - s;
+            rects[count].top = top;
+            rects[count].bottom = top + s;
+            count++;
+        }
+    }
+    return count;
+}
+
+int HitTestSlotButtons(POINT pt)
+{
+    for(size_t i = 0; i < g_programState.slots.size(); ++i) {
+        auto& slot = g_programState.slots[i];
+        if(!PtInRect(&slot.r, pt)) continue;
+        long hs = slot.r.bottom - slot.r.top;
+        long lb = LabelBandHeight(hs);
+        RECT labelBox = {
+            slot.r.left + 3, slot.r.top + 3,
+            slot.r.right - 3, slot.r.top + lb - 3 };
+        RECT rects[12];
+        int n = SlotButtonRects(labelBox, slot.hwnd, rects, 12);
+        for(int b = 0; b < n; ++b) {
+            if(PtInRect(&rects[b], pt)) {
+                return (b == 0)
+                    ? JAT_SLOTBTN_CLOSE
+                    : (JAT_SLOTBTN_MOVETO_BASE + (b - 1));
+            }
+        }
+        return JAT_SLOTBTN_NONE;
+    }
+    return JAT_SLOTBTN_NONE;
+}
+
 template<typename F>
 void PerformSlotting(F&& functor)
 {
@@ -428,11 +481,40 @@ void OnPaint(HDC hdc)
             std::wstring title(str);
 
             Rectangle(hdc, r.left, r.top, r.right, r.bottom);
+
+            RECT labelBox = r;
+            RECT btns[12];
+            int nBtns = SlotButtonRects(labelBox, hwnd, btns, 12);
+            long textRight = labelBox.right;
+            for(int b = 0; b < nBtns; ++b) {
+                textRight = std::min(textRight, (long)btns[b].left);
+            }
+
             r.left += 6;
-            r.right -= 6;
+            r.right = textRight - 6;
             r.top += 3;
             r.bottom -= 3;
             DrawText(hdc, str, -1, &r, DT_LEFT | DT_WORDBREAK | DT_WORD_ELLIPSIS);
+
+            SetDCPenColor(hdc, RGB(110, 110, 116));
+            for(int b = 0; b < nBtns; ++b) {
+                SetDCBrushColor(hdc, RGB(58, 58, 64));
+                Rectangle(hdc, btns[b].left, btns[b].top, btns[b].right, btns[b].bottom);
+                TCHAR bl[8];
+                if(b == 0) {
+                    lstrcpy(bl, _T("\xD7")); // multiplication sign as a close glyph
+                    SetTextColor(hdc, RGB(245, 130, 130));
+                } else {
+                    wsprintf(bl, _T("%d"), b);
+                    SetTextColor(hdc, RGB(205, 205, 210));
+                }
+                RECT br2 = btns[b];
+                DrawText(hdc, bl, -1, &br2, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            }
+            // restore label colors for the next slot
+            SetTextColor(hdc, RGB(235, 235, 235));
+            SetDCBrushColor(hdc, RGB(38, 38, 42));
+            SetDCPenColor(hdc, RGB(90, 90, 96));
 
             if(thumb.type == APP_THUMB_COMPAT) {
                 ICONINFO iconInfo;

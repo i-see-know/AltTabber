@@ -36,7 +36,8 @@ extern void PurgeThumbnails();
 extern void CreateThumbnails(std::wstring const&);
 extern void SetThumbnails();
 extern void OnPaint(HDC);
-extern void MoveCursorOverActiveSlot(); 
+extern void MoveCursorOverActiveSlot();
+extern int HitTestSlotButtons(POINT);
 
 ProgramState_t g_programState = {
     /*showing=*/FALSE,
@@ -677,11 +678,35 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_LBUTTONUP:
         if(!g_programState.showing) break;
         SelectByMouse((DWORD)lParam);
+        {
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            int act = HitTestSlotButtons(pt);
+            if(act == JAT_SLOTBTN_CLOSE) {
+                SendMessage(hWnd, WM_COMMAND, MY_CLOSE_BTN_ID, 0);
+            } else if(act >= JAT_SLOTBTN_MOVETO_BASE) {
+                SendMessage(hWnd, WM_COMMAND,
+                    MY_MOVE_TO_BASE_ID + (act - JAT_SLOTBTN_MOVETO_BASE), 0);
+            }
+        }
         break;
     case WM_LBUTTONDBLCLK:
     case WM_RBUTTONDBLCLK:
         if(!g_programState.showing) break;
         SelectByMouse((DWORD)lParam);
+        {
+            // a fast double-click on an in-cell button is a button click,
+            // not a commit
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            int act = HitTestSlotButtons(pt);
+            if(act == JAT_SLOTBTN_CLOSE) {
+                SendMessage(hWnd, WM_COMMAND, MY_CLOSE_BTN_ID, 0);
+                break;
+            } else if(act >= JAT_SLOTBTN_MOVETO_BASE) {
+                SendMessage(hWnd, WM_COMMAND,
+                    MY_MOVE_TO_BASE_ID + (act - JAT_SLOTBTN_MOVETO_BASE), 0);
+                break;
+            }
+        }
         SelectCurrent();
         break;
     case WM_CHAR:

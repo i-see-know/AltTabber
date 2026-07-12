@@ -25,6 +25,11 @@ typedef struct {
 
 #define JAT_HACK_DEXPOT 1
 
+// HitTestSlotButtons results
+#define JAT_SLOTBTN_NONE 0
+#define JAT_SLOTBTN_CLOSE 1
+#define JAT_SLOTBTN_MOVETO_BASE 100 // + zero-based monitor index
+
 class AltTabberUIAProvider;
 
 typedef struct {
