@@ -229,6 +229,18 @@ void CreateThumbnails(std::wstring const& filter)
     log(_T("enum desktop windows: %d\n"), hr);
 }
 
+// height of the title strip at the top of each slot: two text lines
+// plus padding, capped at a third of the slot for very small cells
+static long LabelBandHeight(long hs)
+{
+    HDC hdc = GetDC(g_programState.hWnd);
+    int dpi = GetDeviceCaps(hdc, LOGPIXELSY);
+    ReleaseDC(g_programState.hWnd, hdc);
+    long fontPx = MulDiv(12, dpi, 72);
+    long band = 2 * (fontPx * 14 / 10) + 16;
+    return std::min(hs / 3, band);
+}
+
 template<typename F>
 void PerformSlotting(F&& functor)
 {
@@ -271,10 +283,11 @@ void SetThumbnails()
     PerformSlotting([&](MonitorInfo_t& mi, size_t j, long l1, long, long hs, long ws) {
             AppThumb_t& thumb = g_programState.thumbnails[mi.hMonitor][j];
 
+            long lb = LabelBandHeight(hs);
             long x = ((long)j % l1) * ws + 3;
-            long y = ((long)j / l1) * hs + hs / 3 + 3;
+            long y = ((long)j / l1) * hs + lb + 3;
             long x1 = x + ws - 6;
-            long y1 = y + hs - hs / 3 - 6;
+            long y1 = y + hs - lb - 6;
             RECT r;
             r.left = mi.extent.left - mis.r.left + x;
             r.right = mi.extent.left - mis.r.left + x1;
@@ -361,12 +374,12 @@ void OnPaint(HDC hdc)
     fSize = MulDiv(fSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
     if(fSize != 12l) log(_T("font size scaled to %ld\n"), fSize);
     HFONT font = CreateFont(
-            fSize, 0, 0, 0, 0, 0, 0, 0,
+            -fSize, 0, 0, 0, 0, 0, 0, 0,
             DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, 
+            CLEARTYPE_QUALITY,
             DEFAULT_PITCH | FF_DONTCARE,
-            _T("Courier New"));
+            _T("Yu Gothic UI"));
     HFONT originalFont = (HFONT)SelectObject(hdc, font);
     
     auto mis = GetMonitorGeometry();
@@ -380,45 +393,46 @@ void OnPaint(HDC hdc)
     auto hrRectangle = Rectangle(hdc, 0, 0, winRect.right - winRect.left, winRect.bottom - winRect.top);
     log(_T("rectangle returned %d: errno %d\n"), hrRectangle, GetLastError());
 
-    SetDCBrushColor(hdc, RGB(255, 0, 0));
+    // active slot: accent-colored fill, visible as a frame around the
+    // label strip and thumbnail drawn on top of it
+    SetDCPenColor(hdc, RGB(0, 120, 215));
+    SetDCBrushColor(hdc, RGB(0, 120, 215));
 
-    //for(size_t i = 0; i < g_programState.slots.size(); ++i) {
-    //    RECT r = (g_programState.slots[i].r);
-    //    Rectangle(hdc, r.left, r.top, r.right, r.bottom);
-    //}
     if(g_programState.activeSlot >= 0) {
         RECT r = (g_programState.slots[g_programState.activeSlot]).r;
         Rectangle(hdc, r.left, r.top, r.right, r.bottom);
     }
 
-    SelectObject(hdc, GetStockObject(WHITE_BRUSH));
-    SelectObject(hdc, GetStockObject(BLACK_PEN));
+    SetDCBrushColor(hdc, RGB(38, 38, 42));
+    SetDCPenColor(hdc, RGB(90, 90, 96));
+    COLORREF prevTextColor = SetTextColor(hdc, RGB(235, 235, 235));
     int prevBkMode = SetBkMode(hdc, TRANSPARENT);
 
     PerformSlotting([&](MonitorInfo_t& mi, size_t j, long l1, long, long hs, long ws) {
             AppThumb_t& thumb = g_programState.thumbnails[mi.hMonitor][j];
             HWND hwnd = thumb.hwnd;
             
+            long lb = LabelBandHeight(hs);
             long x = ((long)j % l1) * ws + 3;
             long y = ((long)j / l1) * hs + 3;
             long x1 = x + ws - 6;
-            long y1 = y + hs - 2 * hs / 3 - 6;
+            long y1 = y + lb - 6;
             RECT r;
             r.left = mi.extent.left - mis.r.left + x;
             r.right = mi.extent.left - mis.r.left + x1;
             r.top = mi.extent.top - mis.r.top + y;
             r.bottom = mi.extent.top - mis.r.top + y1;
-            
+
             TCHAR str[257];
             GetWindowText(hwnd, str, 256);
             std::wstring title(str);
 
             Rectangle(hdc, r.left, r.top, r.right, r.bottom);
-            r.left += 3;
+            r.left += 6;
             r.right -= 6;
             r.top += 3;
-            r.bottom -= 6;
-            DrawText(hdc, str, -1, &r, DT_BOTTOM | DT_LEFT | DT_WORDBREAK);
+            r.bottom -= 3;
+            DrawText(hdc, str, -1, &r, DT_LEFT | DT_WORDBREAK | DT_WORD_ELLIPSIS);
 
             if(thumb.type == APP_THUMB_COMPAT) {
                 ICONINFO iconInfo;
@@ -449,7 +463,7 @@ void OnPaint(HDC hdc)
 
                     POINT location = {
                         (r.right + r.left) / 2 - size.cx / 2,
-                        r.top + 2 * hs / 3 - size.cy,
+                        r.bottom + (hs - lb) / 2 - size.cy / 2,
                     };
 
                     DeleteBitmap(iconInfo.hbmColor);
@@ -460,9 +474,10 @@ void OnPaint(HDC hdc)
             }
     });
 
-    DeleteObject(font);
+    SetTextColor(hdc, prevTextColor);
     SetBkMode(hdc, prevBkMode);
     SelectObject(hdc, originalFont);
     SelectObject(hdc, originalBrush);
     SelectObject(hdc, original);
+    DeleteObject(font);
 }
