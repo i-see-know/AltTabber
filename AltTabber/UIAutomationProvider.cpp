@@ -147,8 +147,8 @@ IFACEMETHODIMP AltTabberUIAProvider::get_HostRawElementProvider(IRawElementProvi
 
 IFACEMETHODIMP AltTabberUIAProvider::Navigate(NavigateDirection direction, IRawElementProviderFragment** pRetVal)
 {
+    *pRetVal = NULL;
     if(m_programState->slots.empty()) {
-        *pRetVal = NULL;
         return S_OK;
     }
     switch (direction) {
