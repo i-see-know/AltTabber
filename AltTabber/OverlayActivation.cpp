@@ -8,6 +8,25 @@ extern void CreateThumbnails(std::wstring const& filter);
 extern void SetThumbnails();
 extern void MoveCursorOverActiveSlot();
 
+// SetForegroundWindow with the AttachThreadInput fallback: when the
+// switcher is activated from the keyboard hook this process never
+// received real input, so the foreground lock rejects a plain
+// SetForegroundWindow and keyboard focus stays with the old window
+void ForceForeground(HWND hWnd)
+{
+    if(SetForegroundWindow(hWnd)) return;
+
+    HWND fg = GetForegroundWindow();
+    DWORD fgThread = fg ? GetWindowThreadProcessId(fg, NULL) : 0;
+    DWORD self = GetCurrentThreadId();
+    if(fgThread && fgThread != self) {
+        AttachThreadInput(self, fgThread, TRUE);
+        auto hr = SetForegroundWindow(hWnd);
+        AttachThreadInput(self, fgThread, FALSE);
+        log(_T("forced foreground via AttachThreadInput: %d\n"), hr);
+    }
+}
+
 void ActivateSwitcher()
 {
     log(_T("activating switcher\n"));
@@ -16,7 +35,7 @@ void ActivateSwitcher()
             (void*)g_programState.prevActiveWindow);
     g_programState.showing = TRUE;
     auto monitorGeom = GetMonitorGeometry();
-    SetForegroundWindow(g_programState.hWnd);
+    ForceForeground(g_programState.hWnd);
     SetFocus(g_programState.hWnd);
     auto hrSWP = SetWindowPos(g_programState.hWnd,
             NULL,
@@ -62,8 +81,8 @@ void QuitOverlay()
             SWP_HIDEWINDOW | SWP_NOSIZE | SWP_NOZORDER | SWP_NOSENDCHANGING);
     if(g_programState.prevActiveWindow) {
         HWND hwnd = g_programState.prevActiveWindow;
-        auto hr = SetForegroundWindow(hwnd);
-        log(_T("set foreground window to previous result: %d\n"), hr);
+        ForceForeground(hwnd);
+        log(_T("set foreground window to previous\n"));
         if(IsIconic(hwnd)) {
             // note to self: apparently only the owner of the window
             // can re-maximize it/restore it properly; calling anything

@@ -62,6 +62,11 @@ ProgramState_t g_programState = {
 #define JAT_HOTKEY_ALTTAB 2
 #define JAT_HOTKEY_ALTSHIFTTAB 3
 
+// commit request posted from the keyboard hook on Alt release; goes
+// through the message queue so it works even if the overlay never
+// managed to take keyboard focus
+#define MY_COMMIT_MSG (WM_APP + 1)
+
 static HHOOK g_hKeyboardHook = NULL;
 
 // Alt+Tab is reserved by the system: RegisterHotKey(MOD_ALT, VK_TAB)
@@ -83,6 +88,18 @@ static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lP
                 shift ? JAT_HOTKEY_ALTSHIFTTAB : JAT_HOTKEY_ALTTAB,
                 0);
             return 1;
+        }
+        // commit on Alt release even when the overlay could not take
+        // keyboard focus (foreground lock)
+        if((wParam == WM_KEYUP || wParam == WM_SYSKEYUP)
+            && (k->vkCode == VK_MENU
+                || k->vkCode == VK_LMENU
+                || k->vkCode == VK_RMENU)
+            && g_programState.showing
+            && g_programState.altTabMode)
+        {
+            PostMessage(g_programState.hWnd, MY_COMMIT_MSG, 0, 0);
+            // deliberately not swallowed
         }
     }
     return CallNextHookEx(NULL, nCode, wParam, lParam);
@@ -563,6 +580,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_DESTROY:
         Cleanup();
         PostQuitMessage(0);
+        break;
+    case MY_COMMIT_MSG:
+        if(g_programState.showing && g_programState.altTabMode) {
+            g_programState.altTabMode = FALSE;
+            SelectCurrent();
+        }
         break;
     case WM_HOTKEY:
         log(_T("hotkey %d pressed\n"), wParam);
