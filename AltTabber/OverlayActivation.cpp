@@ -53,6 +53,7 @@ void QuitOverlay()
 {
     log(_T("escape pressed; reverting\n"));
     g_programState.showing = FALSE;
+    g_programState.altTabMode = FALSE;
     auto monitorGeom = GetMonitorGeometry();
     SetWindowPos(g_programState.hWnd,
             0,

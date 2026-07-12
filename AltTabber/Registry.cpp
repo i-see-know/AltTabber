@@ -42,6 +42,7 @@ void SynchronizeWithRegistry()
     DWORD dKey = (DWORD)g_programState.hotkey.key;
     DWORD dSize = sizeof(DWORD);
     DWORD dResetOnClose = (DWORD)g_programState.resetOnClose;
+    DWORD dHijackAltTab = (DWORD)g_programState.hijackAltTab;
 
     switch(disposition) {
     case REG_CREATED_NEW_KEY: {
@@ -76,6 +77,16 @@ void SynchronizeWithRegistry()
             log(_T("RegSetValue failed %d: errno %d\n"), hr, GetLastError());
             return;
         }
+        hr = RegSetValueEx(phk,
+            _T("hijackAltTab"),
+            0,
+            REG_DWORD,
+            (BYTE*)&dHijackAltTab,
+            sizeof(DWORD));
+        if(hr != ERROR_SUCCESS) {
+            log(_T("RegSetValue failed %d: errno %d\n"), hr, GetLastError());
+            return;
+        }
         break; }
     case REG_OPENED_EXISTING_KEY:
         // read values
@@ -103,6 +114,26 @@ void SynchronizeWithRegistry()
         }
         g_programState.hotkey.modifiers = (UINT)(ULONG)dModifiers;
         g_programState.hotkey.key = (UINT)(ULONG)dKey;
+
+        // hijackAltTab may be absent in keys created by older versions;
+        // keep the default (on) and write it out so it can be discovered
+        dSize = sizeof(DWORD);
+        hr = RegQueryValueEx(phk,
+            _T("hijackAltTab"),
+            0,
+            NULL,
+            (BYTE*)&dHijackAltTab,
+            &dSize);
+        if(hr == ERROR_SUCCESS) {
+            g_programState.hijackAltTab = dHijackAltTab != 0x0;
+        } else {
+            (void)RegSetValueEx(phk,
+                _T("hijackAltTab"),
+                0,
+                REG_DWORD,
+                (BYTE*)&dHijackAltTab,
+                sizeof(DWORD));
+        }
 
         // resetOnClose may be absent in keys created by older versions;
         // keep the default in that case instead of discarding the hotkey

@@ -41,6 +41,8 @@ typedef struct {
     BOOL resetOnClose;
     AltTabberUIAProvider* uiaProvider;
     DWORD rebuildingSlots; // this is not a lock and it probably does nothing, but I swear I saw one crash in the UIA thread which I could not reproduce
+    BOOL hijackAltTab;  // take over Alt+Tab / Alt+Shift+Tab (registry: hijackAltTab)
+    BOOL altTabMode;    // overlay was opened by Alt+Tab; commit when Alt is released
 
     HWND hWnd;
     std::map<HMONITOR, std::vector<AppThumb_t> > thumbnails;

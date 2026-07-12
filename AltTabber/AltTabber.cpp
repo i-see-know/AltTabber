@@ -53,8 +53,14 @@ ProgramState_t g_programState = {
     /*compatHacks=*/0,
     /*resetOnClose=*/false,
     /*uiaProvider=*/NULL,
-    /*rebuildingSlots=*/0
+    /*rebuildingSlots=*/0,
+    /*hijackAltTab=*/TRUE,
+    /*altTabMode=*/FALSE
 };
+
+#define JAT_HOTKEY_MAIN 1
+#define JAT_HOTKEY_ALTTAB 2
+#define JAT_HOTKEY_ALTSHIFTTAB 3
 
 // Global Variables:
 HINSTANCE hInst;                                // current instance
@@ -232,6 +238,18 @@ BOOL InitInstance(HINSTANCE hInstance, int)
             MB_OK | MB_ICONERROR);
         Cleanup();
         PostQuitMessage(0);
+    }
+
+    if(g_programState.hijackAltTab) {
+        // take over the system switcher; failure is not fatal, the main
+        // hotkey still works
+        if(RegisterHotKey(hWnd, JAT_HOTKEY_ALTTAB, MOD_ALT, VK_TAB)
+            && RegisterHotKey(hWnd, JAT_HOTKEY_ALTSHIFTTAB, MOD_ALT | MOD_SHIFT, VK_TAB))
+        {
+            log(_T("alt-tab hotkeys registered successfully\n"));
+        } else {
+            log(_T("failed to register alt-tab hotkeys; errno %d\n"), GetLastError());
+        }
     }
 
     g_programState.hWnd = hWnd;
@@ -516,14 +534,65 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         PostQuitMessage(0);
         break;
     case WM_HOTKEY:
-        // only waiting for one, so skip over trying to decode it
-        // even if multiple keys are registered as hotkeys, they'd
-        // all do the same thing anyway
-        log(_T("hotkey pressed\n"));
-        if(g_programState.showing) {
+        log(_T("hotkey %d pressed\n"), wParam);
+        switch(wParam) {
+        case JAT_HOTKEY_MAIN:
+            // sticky mode: toggle the overlay, commit with Enter or the
+            // hotkey itself
+            g_programState.altTabMode = FALSE;
+            if(g_programState.showing) {
+                SelectCurrent();
+            } else {
+                ActivateSwitcher();
+            }
+            break;
+        case JAT_HOTKEY_ALTTAB:
+        case JAT_HOTKEY_ALTSHIFTTAB:
+            // windows-like mode: cycle while Alt is held, commit on release
+            if(!g_programState.showing) {
+                g_programState.altTabMode = TRUE;
+                ActivateSwitcher();
+            }
+            MoveNext((wParam == JAT_HOTKEY_ALTTAB) ? VK_TAB : VK_BACK);
+            // if Alt was already released while we were building the
+            // overlay, commit right away instead of getting stuck open
+            if(g_programState.altTabMode
+                && !(GetAsyncKeyState(VK_MENU) & 0x8000))
+            {
+                g_programState.altTabMode = FALSE;
+                SelectCurrent();
+            }
+            break;
+        }
+        break;
+    case WM_KEYUP:
+    case WM_SYSKEYUP:
+        if(wParam == VK_MENU
+            && g_programState.showing
+            && g_programState.altTabMode)
+        {
+            g_programState.altTabMode = FALSE;
             SelectCurrent();
-        } else {
-            ActivateSwitcher();
+            break;
+        }
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    case WM_SYSKEYDOWN:
+        // arrows/escape while Alt is still held down
+        switch(wParam) {
+        case VK_LEFT:
+        case VK_RIGHT:
+        case VK_UP:
+        case VK_DOWN:
+            MoveNext((DWORD)wParam);
+            break;
+        case VK_ESCAPE:
+            QuitOverlay();
+            break;
+        case VK_RETURN:
+            SelectCurrent();
+            break;
+        default:
+            return DefWindowProc(hWnd, message, wParam, lParam);
         }
         break;
     case WM_MOUSEWHEEL: {
