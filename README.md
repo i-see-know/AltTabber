@@ -9,6 +9,32 @@ This was successful, but Windows has made things less of a problem as we went fr
 
 This project lives at https://github.com/alzwded/AltTabber/ .
 
+About this fork (i-see-know/AltTabber)
+--------------------------------------
+
+This is a fork of [alzwded/AltTabber](https://github.com/alzwded/AltTabber) with bug fixes and a few new features:
+
+**New features**
+
+* **Windows-style `Alt`+`Tab` takeover**: hold `Alt`, press `Tab` / `Shift`+`Tab` (or arrow keys) to cycle, release `Alt` to switch. Implemented with a low-level keyboard hook (`WH_KEYBOARD_LL`), like other modern switcher replacements; the native switcher is suppressed while AltTabber runs. Opt out by setting the `hijackAltTab` registry value (`HKCU\Software\jakkal\AltTabber`) to `0`. The original configurable hotkey keeps its sticky toggle behavior with type-to-filter. When an elevated window is in the foreground, UIPI bypasses the hook and the native `Alt`+`Tab` takes over.
+* **In-cell buttons**: each tile has `[1] [2] .. [x]` buttons (move to monitor N / close window), mirroring the right-click context menu.
+* **Per-monitor DPI awareness (v2)**: fixes clipped/misplaced tiles on mixed-scale multi-monitor setups (upstream issue #11).
+* **Readability**: dark theme, `Yu Gothic UI` font (CJK titles render properly), slimmer label strip so thumbnails get more space, accent-colored selection.
+* **Build without Visual Studio**: `build-mingw.sh` builds a static single exe with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw).
+
+**Bug fixes**
+
+* `resetOnClose` was read from the wrong registry value (effectively always on).
+* A missing `resetOnClose` value discarded the already-read custom hotkey.
+* UIA bounding rectangle height was negative (`top - bottom`).
+* `LoadString` was given byte counts instead of character counts (latent stack overflow).
+* `Navigate()` could `AddRef` an uninitialized out-pointer for parent/sibling directions.
+* Guard against monitor-not-found in `MoveToMonitor`.
+* Removed a leftover debug diagonal line drawn across the overlay.
+
+Note: unsigned binaries that install keyboard hooks are sometimes flagged by antivirus heuristics. Build from source if you prefer: `TOOLCHAIN=/path/to/llvm-mingw/bin sh build-mingw.sh`.
+
+
 Key bindings and activation
 ---------------------------
 
