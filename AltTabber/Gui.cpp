@@ -108,6 +108,35 @@ static BOOL GetImagePathName(HWND hwnd, std::wstring& imagePathName)
     return hr;
 }
 
+// best-effort app icon for the label strip; sets *owns when the caller
+// must DestroyIcon it (icons handed out by the window itself are shared)
+static HICON GetAppIcon(HWND hwnd, std::wstring const& imagePathName, BOOL* owns)
+{
+    *owns = FALSE;
+    DWORD_PTR result = 0;
+    if(SendMessageTimeout(hwnd, WM_GETICON, ICON_SMALL2, 0,
+        SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT, 15, &result) && result)
+        return (HICON)result;
+    if(SendMessageTimeout(hwnd, WM_GETICON, ICON_BIG, 0,
+        SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT, 15, &result) && result)
+        return (HICON)result;
+    HICON h = (HICON)GetClassLongPtr(hwnd, GCLP_HICONSM);
+    if(h) return h;
+    h = (HICON)GetClassLongPtr(hwnd, GCLP_HICON);
+    if(h) return h;
+    if(!imagePathName.empty()) {
+        SHFILEINFO sfi;
+        ZeroMemory(&sfi, sizeof(sfi));
+        if(SHGetFileInfo(imagePathName.c_str(), 0, &sfi, sizeof(sfi),
+            SHGFI_ICON | SHGFI_LARGEICON) && sfi.hIcon)
+        {
+            *owns = TRUE;
+            return sfi.hIcon;
+        }
+    }
+    return NULL;
+}
+
 static BOOL CALLBACK enumWindows(HWND hwnd, LPARAM lParam)
 {
     if(hwnd == g_programState.hWnd) return TRUE;
@@ -143,6 +172,9 @@ static BOOL CALLBACK enumWindows(HWND hwnd, LPARAM lParam)
         hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
     }
 
+    BOOL ownsLabelIcon = FALSE;
+    HICON labelIcon = GetAppIcon(hwnd, imagePathName, &ownsLabelIcon);
+
     HTHUMBNAIL hThumb = NULL;
     auto hr = DwmRegisterThumbnail(g_programState.hWnd, hwnd, &hThumb);
     log(_T("register thumbnail for %p on monitor %p: %d\n"),
@@ -155,6 +187,8 @@ static BOOL CALLBACK enumWindows(HWND hwnd, LPARAM lParam)
             hwnd,
         };
         at.thumb = hThumb;
+        at.labelIcon = labelIcon;
+        at.ownsLabelIcon = ownsLabelIcon;
         g_programState.thumbnails[hMonitor].push_back(at);
     } else {
         AppThumb_t at = {
@@ -187,6 +221,8 @@ static BOOL CALLBACK enumWindows(HWND hwnd, LPARAM lParam)
             }
         }
         at.icon = hIcon;
+        at.labelIcon = labelIcon;
+        at.ownsLabelIcon = ownsLabelIcon;
         g_programState.thumbnails[hMonitor].push_back(at);
     }
 
@@ -211,6 +247,11 @@ void PurgeThumbnails()
                 [](AppThumb_t const& thumb) {
                     DwmUnregisterThumbnail(thumb.thumb);
                 });
+        std::for_each(i->second.begin(), i->second.end(),
+                [](AppThumb_t const& thumb) {
+                    if(thumb.labelIcon && thumb.ownsLabelIcon)
+                        DestroyIcon(thumb.labelIcon);
+                });
     }
     g_programState.thumbnails.clear();
 }
@@ -227,6 +268,7 @@ void RemoveThumbnailFor(HWND hwnd)
         for(auto it = v.begin(); it != v.end(); ) {
             if(it->hwnd == hwnd) {
                 if(it->type == APP_THUMB_AERO) DwmUnregisterThumbnail(it->thumb);
+                if(it->labelIcon && it->ownsLabelIcon) DestroyIcon(it->labelIcon);
                 it = v.erase(it);
             } else {
                 ++it;
@@ -507,7 +549,18 @@ void OnPaint(HDC hdc)
                 textRight = std::min(textRight, (long)btns[b].left);
             }
 
-            r.left += 6;
+            long textLeft = labelBox.left + 6;
+            if(thumb.labelIcon) {
+                long iconS = (labelBox.bottom - labelBox.top) - 12;
+                if(iconS < 16) iconS = 16;
+                DrawIconEx(hdc,
+                    labelBox.left + 8,
+                    labelBox.top + ((labelBox.bottom - labelBox.top) - iconS) / 2,
+                    thumb.labelIcon, iconS, iconS, 0, NULL, DI_NORMAL);
+                textLeft = labelBox.left + 8 + iconS + 8;
+            }
+
+            r.left = textLeft;
             r.right = textRight - 6;
             r.top += 3;
             r.bottom -= 3;

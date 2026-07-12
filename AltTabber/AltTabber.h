@@ -15,6 +15,8 @@ typedef struct {
         HTHUMBNAIL thumb;
         HICON icon;
     };
+    HICON labelIcon;    // small app icon for the label strip; may be NULL
+    BOOL ownsLabelIcon; // TRUE when extracted from the exe -> DestroyIcon on purge
 } AppThumb_t;
 
 typedef struct {
